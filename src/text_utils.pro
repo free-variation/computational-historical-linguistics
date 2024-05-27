@@ -1,3 +1,5 @@
+:- use_module(library(yall)).
+
 % extremely useful debugging utility
 :- op(920, fy, *).
 * _.
@@ -13,12 +15,8 @@ notrack :-
     visible(+all),
     notrace.
 
-
-row_to_list(Row, List) :-
-    Row =.. [_ | List].
-
-rows_to_lists(Rows, Lists) :-
-    maplist(row_to_list, Rows, Lists).
+relations_to_lists(Relations, Lists) :-
+    maplist({}/[Relation, List]>>(Relation =.. [_ | List]), Relations, Lists).
 
 pair(X, Y, [X, Y]).
 zip_lists(L1, L2, ZippedLists) :- 
@@ -32,8 +30,8 @@ chunk_list(Size, List, CurrentChunks, Chunks) :-
 chunk_list(Size, List, CurrentChunks, Chunks) :-
     length(List, Length),
     Length > Size,
-    append(Chunk, Rest, List),
     length(Chunk, Size),
+    append(Chunk, Rest, List),
     append(CurrentChunks, [Chunk], NewCurrentChunks),
     chunk_list(Size, Rest, NewCurrentChunks, Chunks).
 
@@ -116,12 +114,12 @@ remove_quotes(X, X).
 range(From, To, Values) :-
     findall(Value, between(From, To, Value), Values).
 
-run(Command, String) :-
+run(Command, Output) :-
     setup_call_cleanup(
         process_create('/bin/sh', ['-c', Command],
                        [ stdout(pipe(Out))
                        ]),
-        read_string(Out, _, String),
+        read_string(Out, _, Output),
         close(Out)).
 
 strip(S, S1) :-
@@ -139,5 +137,21 @@ markdown_table_to_lists(MarkdownTable, Lists) :-
     MarkdownRows = [_, _ | RestRows],
     exclude({}/['']>>(true), RestRows, RestRows1),
     maplist(markdown_row_to_list, RestRows1, Lists).
+
+pairwise_combinations(List, Pairs) :-
+    findall(SortedXY, (
+        select(X, List, List1), 
+        select(Y, List1, _), 
+        msort([X, Y], SortedXY)), 
+        AllPairs), 
+    sort(AllPairs, Pairs).
+
+sample(List, NumSamples, Samples) :-
+    random_permutation(List, ShuffledList),
+    length(Samples, NumSamples),
+    append(Samples, _, ShuffledList).
+
+
+
 
     
