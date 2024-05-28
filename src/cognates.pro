@@ -8,11 +8,9 @@
 
 :- dynamic lex/8.
 :- dynamic lex_cog/8.
-:- dynamic cog/6.
 :- dynamic concept/2.
 :- dynamic glottolog/2.
 :- dynamic asjp_symbol/2.
-:- dynamic cognate_set/5.
 
 create_asjp_symbol(asjp(Symbol, FeaturesString), asjp_symbol(Symbol, Features)) :-
     atomics_to_string(Features, ' ', FeaturesString).
@@ -55,52 +53,7 @@ read_wordlist :-
         glottolog(Glottocode, GlottologName)
     ]>>true, Words, AllGlottolog),
     sort(AllGlottolog, Glottolog),
-    maplist(assertz, Glottolog),
-
-    maplist({}/[
-        lex_cog(DB, _, Family, _, ConceptID, CSID, _, _),
-        cognate_set(DB, CSID, Family, ConceptID)
-    ]>>true, LexiconWithCognates, AllCognatesets),
-    sort(AllCognatesets, Cognatesets),
-    maplist(cognate_set_words, Cognatesets, CognatesetsWords),
-    maplist(assertz, CognatesetsWords),
-
-    all_cognate_pairs(CognatePairs),
-    maplist(assertz, CognatePairs).
-
-cognate_set_words(
-    cognate_set(DB, CSID, Family, ConceptID), 
-    cognate_set(DB, CSID, Family, ConceptID, Words)) :-
-    findall(
-        word(ID, Glottocode, ASJP),
-        lex_cog(DB, ID, Family, Glottocode, ConceptID, CSID, _, ASJP),
-        Words
-    ).
-
-all_cognate_pairs(CognatePairs) :-
-    findall(
-        cognate_set(DB, CSID, Family, ConceptID, Words), 
-        cognate_set(DB, CSID, Family, ConceptID, Words), 
-        Cognatesets),
-    include({}/[cognate_set(DB, CSID, Family, ConceptID, Words)]>>(length(Words, L), L > 1), 
-        Cognatesets, 
-        MultipleCognatesets),
-    maplist({}/[cognate_set(DB, CSID, Family, ConceptID, Words), Cognates]>> 
-        (   pairwise_combinations(Words, Pairs),
-            maplist(
-                {DB, CSID, Family, ConceptID}/[[Cognate1, Cognate2], cog(DB, CSID, Family, ConceptID, Cognate1, Cognate2)]>>true, 
-                Pairs, 
-                Cognates)
-        ), 
-        MultipleCognatesets,
-        NestedCognatePairs),
-    flatten(NestedCognatePairs, CognatePairs).
-
-all_cognates(Cognates) :-
-    findall(
-        cog(DB, CSID, Family, ConceptID, Word1, Word2),
-        cog(DB, CSID, Family, ConceptID, Word1, Word2),
-        Cognates).
+    maplist(assertz, Glottolog).
 
 
 compile_statistics(ConceptStats) :-
@@ -153,7 +106,7 @@ random_pairs(CognatePair, NonCognatePair) :-
 create_dataset(NumTraining, NumValidation, Dataset) :-
     Total is NumTraining + NumValidation,
     range(1, Total, R),
-    maplist({}/[_, [ASJP1, ASJP2, ASJP3, ASJP4]]>>(random_pairs(
+    maplist({}/[_, [cog(ASJP1, ASJP2), non_cog(ASJP3, ASJP4)]]>>(random_pairs(
         cog(_, _, _, _, word(_, _, ASJP1), word(_, _, ASJP2)), 
         non_cog(_, _, _, _, word(_, _, ASJP3), word(_, _, ASJP4)))), 
         R, Pairs),
@@ -162,24 +115,36 @@ create_dataset(NumTraining, NumValidation, Dataset) :-
     length(ValidationSet, NumValidation),
     append(TrainingSet, ValidationSet, Pairs),
 
-    Dataset = dataset(TrainingSet, ValidationSet).
+    flatten(TrainingSet, FlatTrainingSet),
+    flatten(ValidationSet, FlatValidationSet),
+
+    Dataset = dataset(FlatTrainingSet, FlatValidationSet).
 
 align_dataset(Dataset, Alignments) :-
     tell('dataset.csv'),
-    maplist({}/[[W1, W2, W3, W4]]>>(format('~w,~w~n~w,~w~n', [W1, W2, W3, W4])), Dataset),
+    maplist({}/[Pair]>>(Pair =.. [_, W1, W2], format('~w,~w~n', [W1, W2])), Dataset),
     told,
+    
     run('julia ./pairwise-alignment/get_pairwise_alignment.jl dataset.csv', Output),
     atomics_to_string(Lines, '\n', Output),
-    reverse(Lines, [_, _ | AlignmentStrings]),
-    maplist({}/[AlignmentString, Words]>>(atomics_to_string(Words, ',', AlignmentString)), 
+    length(Tail, 2),
+    append(AlignmentStrings, Tail, Lines),
+
+    maplist({}/[Pair, PairType]>>(functor(Pair, PairType, 2)), Dataset, PairTypes),
+    maplist({}/[PairType, AlignmentString, AlignedPair]>>
+        (   atomics_to_string(Words, ',', AlignmentString),
+            AlignedPair =.. [PairType | Words]
+        ),
+        PairTypes,
         AlignmentStrings,
         Alignments).
 
-format_alignment(CognateType, [W1, W2, W3, W4], Alignment) :-
+format_alignment(Quad, Alignment) :-
+    Quad =.. [PairType, W1, W2, W3, W4],
     atom_chars(W3, CW3),
     atom_chars(W4, CW4),
     maplist({}/[C3, C4, O]>>(format(atom(O), '(~w, ~w)', [C3, C4])), CW3, CW4, AlignedCodes),
-    format(string(Alignment), '| ~w | ~w | ~w | ~w |', [CognateType, W1, W2, AlignedCodes]).
+    format(string(Alignment), '| ~w | ~w | ~w | ~w |', [PairType, W1, W2, AlignedCodes]).
 
 
 system_prompt(SystemPrompt) :-
