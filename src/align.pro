@@ -74,7 +74,8 @@ Examples for Alignment:
             (-, a)
             (-, n)
 
-        Explanation: The alignment respects the phonetic closeness as much as possible, with voiced alveolars "z" and "d" aligning.  But then note that further into "draunikan" there's a sequence "-un-", which "zun" also contains.  So we add gaps to "zun" so that "u" and "n" align.  
+        Explanation: The alignment respects the phonetic closeness as much as possible, with voiced alveolars "z" and "d" aligning.  
+        But then note that further into "draunikan" there is a sequence "-un-", which "zun" also contains.  So we add gaps to "zun" so that "u" and "n" align.  
 
     Here is the list of words to be aligned to {Transcription}:
     {TranscriptionsMarkdown}
