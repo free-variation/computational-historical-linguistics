@@ -151,6 +151,14 @@ sample(List, NumSamples, Samples) :-
     length(Samples, NumSamples),
     append(Samples, _, ShuffledList).
 
+replace_functor(NewFunctor, Term, NewTerm) :-
+    Term =.. [_ | Args],
+    NewTerm =.. [NewFunctor | Args].
+
+frequencies(List, RunLengths) :-
+    msort(List, SortedList),
+    clumped(SortedList, RunLengths).
+
 
 
 

@@ -6,37 +6,16 @@
 
 :- set_prolog_flag(stack_limit, 8_589_934_592).
 
-system_prompt(SystemPrompt) :-
-    SystemPrompt = {|string||
-    You are an expert in phonetics, phonology, and diachronic linguistics.  
-    You are a master at applying the Comparative Method.
-    |}.
-
-:- dynamic lex/13.
-:- dynamic lex_cog/13.
-:- dynamic cog/2.
-% db,ID,Language_ID,Parameter_ID,Segments,Glottolog_Name,Glottocode,Family,Concepticon_ID,Concepticon_Gloss,Cognateset_ID,cc,ASJP
-read_wordlist :-
-    csv_read_file('data/lexibank_wordlist.csv', [ _ | Words], [functor(lex)]),
-    retractall(lex(_, _, _, _, _, _, _, _, _, _, _, _, _)),
-    maplist(assertz, Words),
-
-    findall(
-        lex_cog(X1, X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12, X13),
-        (   lex(X1, X2, X3, X4, X5, X6, X7, X8, X9, X10, X11, X12, X13),
-            \+ X11 = ''
-        ),
-        LexWithCognateSet),
-    random_permutation(LexWithCognateSet, ShuffledLexWithCognateSet),
-    maplist(assertz, ShuffledLexWithCognateSet).
-
-% lex[_cog](DB, ID, LanguageID, ParameterID, Segments, GlottologName, GlottoCode, Family, 
-% ConceptID, Gloss, CognatesetID, CC, ASJP)
+:- dynamic lex/8.
+:- dynamic lex_cog/8.
+:- dynamic cog/6.
+:- dynamic concept/2.
+:- dynamic glottolog/2.
+:- dynamic asjp_symbol/2.
+:- dynamic cognate_set/5.
 
 create_asjp_symbol(asjp(Symbol, FeaturesString), asjp_symbol(Symbol, Features)) :-
     atomics_to_string(Features, ' ', FeaturesString).
-
-:- dynamic asjp_symbol/2.
 
 read_asjp_symbols(ASJP) :-
     csv_read_file('data/asjp.tsv', Rows, [functor(asjp)]),
@@ -44,144 +23,175 @@ read_asjp_symbols(ASJP) :-
     retractall(asjp_symbol(_, _)),
     maplist(assertz, ASJP).
 
-read_alignments :-
-    csv_read_file('data/all_cognate_alignments.csv', Rows, [functor(alignment)]),
-    retractall(alingment(_, _, _, _)),
-    maplist(assertz, Rows).
-
-
-concept(ConceptID, Gloss) :-
-    lex(_, _, _, _, _, _, _, _, ConceptID, Gloss, _, _, _).
-
-concepts(Concepts) :-
-    findall(
-        concept(ConceptID, Gloss),
-        concept(ConceptID, Gloss),
-        AllConcepts),
-    sort(AllConcepts, Concepts).
-
-family(Family) :-
-    lex(_, _, _, _, _, _, _, Family, _, _, _, _, _).
-
-families(Families) :-
-    findall(Family, family(Family), AllFamilies),
-    sort(AllFamilies, SortedFamilies),
-    exclude({}/['']>>true, SortedFamilies, Families).
-
-cognate_set_id(CognatesetID) :-
-    lex_cog(_, _, _, _, _, _, _, _, _, _, CognatesetID, _, _),
-    \+ CognatesetID = ''.
-
-cognate_set_ids(CognatesetIDs) :-
-    findall(CognatesetID, cognate_set_id(CognatesetID), AllCognatesetIDs),
-    sort(AllCognatesetIDs, CognatesetIDs).
-
-cognate_set_words(CognatesetID, cognate_set(CognatesetID, Words)) :-
-    findall(
-        word(ID, Family, LanguageID, ConceptID, Gloss, CognatesetID, Transcription),
-        lex_cog(_, ID, LanguageID, _, _, _, _, Family, ConceptID, Gloss, CognatesetID, _, Transcription),
-        Words).
-
-cognate_set_transcriptions(CognatesetID, cognate_set(CognatesetID, Transcriptions)) :-
-    findall(
-        Transcription,
-        lex_cog(_, _, _, _, _, _, _, _, _, _, CognatesetID, _, Transcription),
-        Transcriptions).
-
-all_cognate_pairs(CognatePairs) :-
-    cognate_set_ids(CognateSetIDs),
-    maplist(cognate_set_words, CognateSetIDs, AllCognates),
-    include({}/[cognate_set(_, Words)]>>(length(Words, L), L > 1), AllCognates, MultipleCognates),
-    maplist({}/[cognate_set(_, Words), Cognates]>> 
-        (   pairwise_combinations(Words, Pairs),
-            maplist({}/[[Cognate1, Cognate2], cog(Cognate1, Cognate2)]>>true, Pairs, Cognates)
-        ), 
-        MultipleCognates,
-        NestedCognatePairs),
-    flatten(NestedCognatePairs, CognatePairs).
-
-
-
-concept_set_with_cognates(Family, ConceptID, ConceptSet) :-
-    findall(
-        word(ID, Family, LanguageID, ConceptID, Gloss, CognatesetID, Transcription),
-        lex_cog(_, ID, LanguageID, _, _, _, _, Family, ConceptID, Gloss, CognatesetID, _, Transcription),
-        ConceptSet).
-
-random_concept_set_with_cognates(ConceptSet) :-
-    findall(
-        [Family, ConceptID], 
-        lex_cog(_, _, _, _, _, _, _, Family, ConceptID, _, _, _, _),
-        FamilyConcepts),
-    random_member([Family, ConceptID], FamilyConcepts),
-    concept_set_with_cognates(Family, ConceptID, ConceptSet).
-
-
-random_cognate_pair(CognatesetID, [Word1, Word2]) :-
-    cognate_set(CognatesetID, Words),
-    random_member(Word1, Words),
-    select(Word1, Words, RestWords),
-    random_member(Word2, RestWords).
-
-cognate_set_size(CognatesetID, Size) :-
-    cognate_set(CognatesetID, Words),
-    length(Words, Size).
-
-random_cognates(Number, Cognates) :-
-    cognate_set_ids(CSIDs),
-    include({}/[CognatesetID]>>(cognate_set_size(CognatesetID, Size), Size > 1), CSIDs, BigCSIDs),
-    sample(BigCSIDs, Number, SampledCSIDs),
-    maplist(random_cognate_pair, SampledCSIDs, Cognates).
-
-random_non_cognate_pair([CognatesetID1, CognatesetID2], [Word1, Word2]) :-
-    cognate_set(CognatesetID1, Words1),
-    cognate_set(CognatesetID2, Words2),
-    random_member(Word1, Words1),
-    random_member(Word2, Words2).
-
-cognate_sets_in_concept(ConceptID, CognatesetIDs) :-
-    findall(
-        CognatesetID, 
-        lex_cog(_, _, _, _, _, _, _, _, ConceptID, _, CognatesetID, _, _),
-        AllCognatesetIDs),
-    sort(AllCognatesetIDs, CognatesetIDs).
-
-non_cognate_set_in_concept(CognatesetID1, CognatesetID2) :-
-    lex_cog(_, _, _, _, _, _, _, _, ConceptID, _, CognatesetID1, _, _),
-    cognate_sets_in_concept(ConceptID, CognatesetIDs),
-    select(CognatesetID1, CognatesetIDs, RestCognatesetIDs),
-    random_member(CognatesetID2, RestCognatesetIDs).
-
-
-random_non_cognates(Number, NonCognates) :-
-    cognate_set_ids(CSIDs),
-    sample(CSIDs, Number, SampledCSIDs1),
-    maplist(non_cognate_set_in_concept, SampledCSIDs1, SampledCSIDs2),
-    zip_lists(SampledCSIDs1, SampledCSIDs2, SampledCSIDPairs),
-    maplist(random_non_cognate_pair, SampledCSIDPairs, NonCognates).
-
 
 asjp_to_markdown(ASJPMarkdownTable) :-
     findall([Symbol, Features], asjp_symbol(Symbol, Features), ASJPEntries),
     maplist({}/[[Symbol, Features], [Symbol, FeaturesString]]>>(atomics_to_string(Features, ',', FeaturesString)), ASJPEntries, FeaturesStrings),
     markdown_table(['Symbol', 'Phonetic Features'], FeaturesStrings, ASJPMarkdownTable).
 
-:- dynamic cognate_set/2.
+% db,ID,Language_ID,Parameter_ID,Segments,Glottolog_Name,Glottocode,Family,Concepticon_ID,Concepticon_Gloss,Cognateset_ID,cc,ASJP
+read_wordlist :-
+    csv_read_file('data/lexibank_wordlist.csv', [ _ | Words], [functor(lex)]),
+
+    maplist({}/[
+        lex(DB, ID, _, _, Segments, _, Glottocode, Family, ConceptID, _, CSID, _, ASJP),
+        lex(DB, ID, Family, Glottocode, ConceptID, CSID, Segments, ASJP)
+    ]>>true, Words, Lexicon),
+    maplist(assertz, Lexicon),
+
+    include({}/[lex(_, _, _, _, _, CSID, _, _)]>>(\+ CSID = ''), Lexicon, LexCogs),
+    maplist(replace_functor(lex_cog), LexCogs, LexiconWithCognates),
+    maplist(assertz, LexiconWithCognates),
+
+    maplist({}/[
+        lex(DB, _, _, _, _, _, _, _, ConceptID, Gloss, _, _, _),
+        concept(DB, ConceptID, Gloss)
+    ]>>true, Words, AllConcepts),
+    sort(AllConcepts, Concepts),
+    maplist(assertz, Concepts),
+
+    maplist({}/[
+        lex(_, _, _, _, _, GlottologName, Glottocode, _, _, _, _, _, _),
+        glottolog(Glottocode, GlottologName)
+    ]>>true, Words, AllGlottolog),
+    sort(AllGlottolog, Glottolog),
+    maplist(assertz, Glottolog),
+
+    maplist({}/[
+        lex_cog(DB, _, Family, _, ConceptID, CSID, _, _),
+        cognate_set(DB, CSID, Family, ConceptID)
+    ]>>true, LexiconWithCognates, AllCognatesets),
+    sort(AllCognatesets, Cognatesets),
+    maplist(cognate_set_words, Cognatesets, CognatesetsWords),
+    maplist(assertz, CognatesetsWords),
+
+    all_cognate_pairs(CognatePairs),
+    maplist(assertz, CognatePairs).
+
+cognate_set_words(
+    cognate_set(DB, CSID, Family, ConceptID), 
+    cognate_set(DB, CSID, Family, ConceptID, Words)) :-
+    findall(
+        word(ID, Glottocode, ASJP),
+        lex_cog(DB, ID, Family, Glottocode, ConceptID, CSID, _, ASJP),
+        Words
+    ).
+
+all_cognate_pairs(CognatePairs) :-
+    findall(
+        cognate_set(DB, CSID, Family, ConceptID, Words), 
+        cognate_set(DB, CSID, Family, ConceptID, Words), 
+        Cognatesets),
+    include({}/[cognate_set(DB, CSID, Family, ConceptID, Words)]>>(length(Words, L), L > 1), 
+        Cognatesets, 
+        MultipleCognatesets),
+    maplist({}/[cognate_set(DB, CSID, Family, ConceptID, Words), Cognates]>> 
+        (   pairwise_combinations(Words, Pairs),
+            maplist(
+                {DB, CSID, Family, ConceptID}/[[Cognate1, Cognate2], cog(DB, CSID, Family, ConceptID, Cognate1, Cognate2)]>>true, 
+                Pairs, 
+                Cognates)
+        ), 
+        MultipleCognatesets,
+        NestedCognatePairs),
+    flatten(NestedCognatePairs, CognatePairs).
+
+all_cognates(Cognates) :-
+    findall(
+        cog(DB, CSID, Family, ConceptID, Word1, Word2),
+        cog(DB, CSID, Family, ConceptID, Word1, Word2),
+        Cognates).
+
+
+compile_statistics(ConceptStats) :-
+    findall(
+        concept(DB, Family, ConceptID, CSID),
+        lex_cog(DB, _, Family, _, ConceptID, CSID, _, _),
+        Concepts
+    ),
+    sort(Concepts, SortedConcepts),
+    maplist({}/[concept(DB, Family, ConceptID, _), concept(DB, Family, ConceptID)]>>true, SortedConcepts, PureConcepts),
+    frequencies(PureConcepts, ConceptCounts),
+    maplist(
+        {}/[concept(DB, Family, ConceptID)-Count, stat_concept(DB, Family, ConceptID, Count)]>>true,
+        ConceptCounts,
+        ConceptStats).
+
+random_words(DB, Family, ConceptID, CSID, NumWords, SelectedWords) :-
+    findall(
+        word(ID, Glottocode, ASJP),
+        lex_cog(DB, ID, Family, Glottocode, ConceptID, CSID, _, ASJP),
+        Words),
+    sample(Words, NumWords, SelectedWords).
+
+random_pairs(CognatePair, NonCognatePair) :-
+    findall(
+        family_concept(DB, Family, ConceptID),
+        (   stat_concept(DB, Family, ConceptID, Count),
+            Count > 4
+        ), 
+        LargeConcepts),
+    random_member(family_concept(DB, Family, ConceptID), LargeConcepts),
+
+    findall(CSID, lex_cog(DB, _, Family, _, ConceptID, CSID, _, _), CSIDs),
+    frequencies(CSIDs, CognatesetCounts),
+    exclude({}/[CSID-1]>>true, CognatesetCounts, LargeCognatesets),
+    maplist({}/[CSID-_, CSID]>>true, LargeCognatesets, LargeCSIDs),
+    length(LargeCSIDs, L),
+    (   L < 2
+    ->  random_pairs(CognatePair, NonCognatePair)
+    ;   (   sample(LargeCSIDs, 2, [CognatesetID1, CognatesetID2]),
+
+            random_words(DB, Family, ConceptID, CognatesetID1, 2, [Word1, Word2]),
+            random_words(DB, Family, ConceptID, CognatesetID2, 1, [NonCognate]),
+    
+            CognatePair = cog(DB, CSID, Family, ConceptID, Word1, Word2),
+            NonCognatePair = non_cog(DB, CSID, Family, ConceptID, Word1, NonCognate)
+        )
+    ).
+
+create_dataset(NumTraining, NumValidation, Dataset) :-
+    Total is NumTraining + NumValidation,
+    range(1, Total, R),
+    maplist({}/[_, [ASJP1, ASJP2, ASJP3, ASJP4]]>>(random_pairs(
+        cog(_, _, _, _, word(_, _, ASJP1), word(_, _, ASJP2)), 
+        non_cog(_, _, _, _, word(_, _, ASJP3), word(_, _, ASJP4)))), 
+        R, Pairs),
+    
+    length(TrainingSet, NumTraining),
+    length(ValidationSet, NumValidation),
+    append(TrainingSet, ValidationSet, Pairs),
+
+    Dataset = dataset(TrainingSet, ValidationSet).
+
+align_dataset(Dataset, Alignments) :-
+    tell('dataset.csv'),
+    maplist({}/[[W1, W2, W3, W4]]>>(format('~w,~w~n~w,~w~n', [W1, W2, W3, W4])), Dataset),
+    told,
+    run('julia ./pairwise-alignment/get_pairwise_alignment.jl dataset.csv', Output),
+    atomics_to_string(Lines, '\n', Output),
+    reverse(Lines, [_, _ | AlignmentStrings]),
+    maplist({}/[AlignmentString, Words]>>(atomics_to_string(Words, ',', AlignmentString)), 
+        AlignmentStrings,
+        Alignments).
+
+format_alignment(CognateType, [W1, W2, W3, W4], Alignment) :-
+    atom_chars(W3, CW3),
+    atom_chars(W4, CW4),
+    maplist({}/[C3, C4, O]>>(format(atom(O), '(~w, ~w)', [C3, C4])), CW3, CW4, AlignedCodes),
+    format(string(Alignment), '| ~w | ~w | ~w | ~w |', [CognateType, W1, W2, AlignedCodes]).
+
+
+system_prompt(SystemPrompt) :-
+    SystemPrompt = {|string||
+    You are an expert in phonetics, phonology, and diachronic linguistics.  
+    You are a master at applying the Comparative Method.
+    |}.
 
 init :-
-    read_wordlist,
     read_asjp_symbols(_),
-    init_openai_key,
-    garbage_collect,
-    read_alignments,
-
-    cognate_set_ids(CSIDs),
-    maplist(cognate_set_words, CSIDs, CognateSets),
-    retractall(cognate_set(_, _)),
-    maplist(assert, CognateSets).
-
-concepts_in_cognate_set(CognatesetID, Concepts) :-
-    findall(ConceptID,
-    lex_cog(_, _, _, _, _, _, _, _, ConceptID, _, CognatesetID, _, _),
-    Concepts).
+    read_wordlist,
+    compile_statistics(ConceptStats),
+    maplist(assertz, ConceptStats),
+    init_openai_key.
 
