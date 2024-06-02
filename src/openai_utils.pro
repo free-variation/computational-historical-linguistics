@@ -39,8 +39,9 @@ create_system_message(Message) :-
 chat_with_gpt(Messages, Response) :-
     chat_with_gpt('gpt-4', Messages, [temperature = 0], 3, false, Response).
 
-max_context('gpt-4', 8192).
-max_context('gpt-4-turbo', 32000).
+max_tokens('gpt-4', 8192).
+max_tokens('gpt-4-turbo', 4096).
+max_tokens('gpt-4o', 4096).
 
 chat_with_gpt(Model, Messages, Options, Attempts, Trace, FinalResponse) :-
     Attempts > 0,
@@ -76,14 +77,9 @@ chat_with_gpt(Model, Messages, Options, Attempts, Trace, FinalResponse) :-
         )
     ),
     response_size(Response, NumTokens),
-    max_context(Model, MaxContext),
-    (   NumTokens > MaxContext
-    ->  (   format('\tresponse too large: ~w~n\trequest: ~w~n~n\tresponse: ~w~n', [NumTokens, FormattedRequest, Response]),
-            OneFewerAttempts is Attempts - 1,
-            chat_with_gpt(Model, Messages, Options, OneFewerAttempts, Trace, FinalResponse)
-        )
-    ; FinalResponse = Response
-    ).
+    max_tokens(Model, MaxTokens),
+    NumTokens =< MaxTokens,
+    FinalResponse = Response.
 
 response_message(json(Response), Message) :-
     member(choices = [json(Choice0) | _], Response),
@@ -93,9 +89,13 @@ response_content(Response, Content) :-
     response_message(Response, json(Message)),
     member(content = Content, Message).
 
-response_size(json(Response), Size) :-
+total_size(json(Response), Size) :-
     member(usage = json(Usage), Response),
     member(total_tokens = Size, Usage).
+
+response_size(json(Response), Size) :-
+    member(usage = json(Usage), Response),
+    member(completion_tokens = Size, Usage).
 
 run_CoT(Prompts, Messages, Responses) :-
     current_prolog_flag(trace_openai, Trace),
@@ -115,9 +115,6 @@ run_CoT(_, [], _, _, Messages, Messages, Responses, Responses).
 run_CoT(Model, [Prompt | Prompts], Options, Trace, CurrentMessages, Messages, CurrentResponses, Responses) :-
     create_message('user', Prompt, Message),
     append(CurrentMessages, [Message], NewMessages),
-
-    sub_string(Prompt, 0, 64, _, PromptStart),
-    format('~w', PromptStart),
     
     chat_with_gpt(Model, NewMessages, Options, 3, Trace, Response),
     
@@ -125,8 +122,8 @@ run_CoT(Model, [Prompt | Prompts], Options, Trace, CurrentMessages, Messages, Cu
     append(NewMessages, [ResponseMessage], NewMessages1),
     append(CurrentResponses, [Response], NewResponses),
 
-    response_size(Response, Size),
-    format('\t~w~n', [Size]),
+    total_size(Response, Size),
+    format('total size:\t~w~n', [Size]),
     
     run_CoT(Model, Prompts, Options, Trace, NewMessages1, Messages, NewResponses, Responses).
 

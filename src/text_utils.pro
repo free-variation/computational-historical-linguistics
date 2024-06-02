@@ -133,7 +133,7 @@ markdown_row_to_list(MarkdownRow, List) :-
     maplist(strip, Bits, List).
 
 markdown_table_to_lists(MarkdownTable, Lists) :-
-    atomics_to_string(MarkdownRows, '\\n', MarkdownTable),
+    atomics_to_string(MarkdownRows, '\n', MarkdownTable),
     MarkdownRows = [_, _ | RestRows],
     exclude({}/['']>>(true), RestRows, RestRows1),
     maplist(markdown_row_to_list, RestRows1, Lists).
@@ -158,8 +158,3 @@ replace_functor(NewFunctor, Term, NewTerm) :-
 frequencies(List, RunLengths) :-
     msort(List, SortedList),
     clumped(SortedList, RunLengths).
-
-
-
-
-    

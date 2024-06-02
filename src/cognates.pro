@@ -153,6 +153,107 @@ system_prompt(SystemPrompt) :-
     You are a master at applying the Comparative Method.
     |}.
 
+% Also return an additional column in the table in which you explain in details your decision.
+find_cognates_prompt(dataset(TrainingSet, ValidationSet), Prompt) :-
+    align_dataset(TrainingSet, AlignedTrainingSet),
+    maplist(format_alignment, AlignedTrainingSet, TrainingRows),
+    format(string(TrainingTable), '~w~n', [TrainingRows]),
+
+    align_dataset(ValidationSet, AlignedValidationSet),
+    maplist(replace_functor('?'), AlignedValidationSet, NoFunctorValidationSet),
+    maplist(format_alignment, NoFunctorValidationSet, ValidationRows),
+    random_permutation(ValidationRows, ShuffledValidationRows),
+    format(string(ValidationTable), '~w~n', [ShuffledValidationRows]),
+
+    asjp_to_markdown(ASJPTable),
+
+    Prompt = {|string(TrainingTable, ValidationTable, ASJPTable)||
+    Help me determine which pairs of words across a wide variety of languages are cognates.
+
+    In each case, the pairs of words have the same meaning.  So deciding whether the words are cognates depends on a comparison of their phonetic segments.
+
+    The strings representing the words are given in a phonetic transcription that uses alphanumeric symbols to represent the phonetic features of each segment.  
+    Each letter or number corresponds to one segment.
+
+    Here is the phonetic alphabet used for the transcriptions, along with the corresponding phonetic features.
+    {ASJPTable}.
+
+I will now provide, as training data, a table of cognates and non-cognates, as determined by expert linguists.  
+As you will notice, every two rows have the same word as the first word of each pair.  Then, one row will give a second word that is a true cognate, marked by "cog", and a second row will list a true non-cognate, marked by "non-cog."
+In each row I also provide you with an ALIGNMENT of the two words, as a list of pair of phonetic symbols.  
+Each pair corresponds to a phonetic segment of Word 1 that has been manually aligned to a phonetic segment of Word 2.  If there is no alignment in one of the two words, e.g. if in moving from one language to the other,
+a segment has been deleted, then a GAP is indicated with the symbol "-".
+
+| Cognate? | Word 1 | Word 2 | Alignment |
+| --- | --- | --- | --- |
+{TrainingTable}
+
+For the following word pairs and their associated alignments, please determine whether the pair are cognates or non-cognates. 
+In coming to a determination, do not _only_ consider the proportion of segments that are aligned.  Evaluate also the nature of the phonetic relationships between aligned segments.
+Return the a markdown table with these columns:
+* Word 1
+* Word 2
+* Cognate? with "?" replaced by "cog" or "non_cog" based on your determination whether or not the pair are cognates.
+
+Return only the final table, without introductory, conclusive, or elaborative language.
+
+| Cognate? | Word 1 | Word 2 | Alignment |
+| --- | --- | --- | --- |
+{ValidationTable}
+    |}.
+
+merge_pairs([], _, Results, Results).
+merge_pairs([ValidationPair | ValidationSet], Evals, CurrentResults, Results) :-
+    ValidationPair =.. [Functor, Word1, Word2],
+    atom_string(Functor, CogString),
+    atom_string(Word1, Word1String),
+    atom_string(Word2, Word2String),
+    
+    member([Word1String, Word2String, Eval], Evals),
+    (   Eval = CogString
+    ->  Correct = 1
+    ;   Correct = 0
+    ),
+
+    Result = result(Word1, Word2, CogString, Eval, Correct),
+    append(CurrentResults, [Result], NewCurrentResults),
+    merge_pairs(ValidationSet, Evals, NewCurrentResults, Results).
+
+merge_pairs(ValidationSet, Evals, Result) :-
+    merge_pairs(ValidationSet, Evals, [], Result).
+
+compute_accuracy(Results, Accuracy) :-
+    maplist({}/[result(_, _, _, _, Correct), Correct]>>true, Results, Corrects),
+    sum_list(Corrects, TotalCorrect),
+    length(Results, Count),
+    Accuracy is TotalCorrect / Count.
+
+find_cognates(Model, Dataset, ValidationSet, Results, Accuracy) :-
+    find_cognates_prompt(Dataset, Prompt),
+
+    time(run_CoT(Model, [Prompt], _, Responses)),
+    last(Responses, Response),
+    response_content(Response, Content),
+    markdown_table_to_lists(Content, Evals),
+
+    Dataset = dataset(_, ValidationSet),
+    merge_pairs(ValidationSet, Evals, Results),
+    compute_accuracy(Results, Accuracy).
+
+count_comparisons(TotalComparisons) :-
+    findall(
+        concept(DB, Family, ConceptID, CSID),
+        (   lex(DB, _, Family, _, ConceptID, CSID, _, _),
+            CSID = ''
+        ),
+        Concepts
+    ),
+    frequencies(Concepts, ConceptsCounts),
+    maplist({}/[_-N, NumComparisons]>>(NumComparisons is N/2 * (N+1)), ConceptsCounts, NumComparisonsByConcept),
+    sum_list(NumComparisonsByConcept, TotalComparisons).
+
+
+
 init :-
     read_asjp_symbols(_),
     read_wordlist,
